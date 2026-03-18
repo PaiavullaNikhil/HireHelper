@@ -6,6 +6,13 @@ const messageSchema = new mongoose.Schema(
     senderId: String,
     text: String,
     time: String,
+    editedAt: Date,
+    reactions: [
+      {
+        userId: { type: String, required: true },
+        emoji: { type: String, required: true },
+      },
+    ],
   },
   { timestamps: true }
 );

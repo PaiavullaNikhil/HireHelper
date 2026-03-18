@@ -3,6 +3,7 @@ import { Avatar, Chip, CircularProgress, Button } from "@mui/material";
 import SendIcon from "@mui/icons-material/Send";
 import { toast } from "react-toastify";
 import { api } from "../lib/api";
+import { getSocket } from "../lib/socket";
 import { useNavigate } from "react-router-dom";
 import "./MyRequests.css";
 
@@ -31,6 +32,19 @@ const MyRequests = () => {
     }
 
     fetchRequests();
+  }, []);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const handleTaskDeleted = ({ taskId }) => {
+      if (!taskId) return;
+      setRequests((prev) => prev.filter((r) => r.task?._id !== taskId));
+    };
+
+    socket.on("task:deleted", handleTaskDeleted);
+    return () => {
+      socket.off("task:deleted", handleTaskDeleted);
+    };
   }, []);
 
   return (

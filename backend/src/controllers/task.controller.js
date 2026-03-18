@@ -1,5 +1,8 @@
 const { Task } = require("../models/Task");
 const { User } = require("../models/User");
+const { Request } = require("../models/Request");
+const { Notification } = require("../models/Notification");
+const Message = require("../models/Message");
 const { cloudinary } = require("../config/cloudinary");
 
 async function uploadToCloudinary(file) {
@@ -250,6 +253,41 @@ async function updateTaskPicture(req, res) {
   }
 }
 
+async function deleteTask(req, res) {
+  try {
+    const { id } = req.params;
+
+    const task = await Task.findOne({ _id: id, createdBy: req.user.id });
+    if (!task) {
+      return res.status(404).json({
+        success: false,
+        message: "Task not found or you don't have permission to delete it",
+      });
+    }
+
+    await Promise.all([
+      Task.deleteOne({ _id: id }),
+      Request.deleteMany({ task: id }),
+      Notification.deleteMany({ taskId: id }),
+      Message.deleteMany({ taskId: String(id) }),
+    ]);
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("task:deleted", { taskId: String(id) });
+    }
+
+    return res.json({
+      success: true,
+      message: "Task deleted successfully",
+      data: { id },
+    });
+  } catch (err) {
+    console.error("DELETE TASK ERROR:", err);
+    return res.status(500).json({ success: false, message: "Failed to delete task" });
+  }
+}
+
 async function getFeedTasks(req, res) {
   try {
     const tasks = await Task.find({ createdBy: { $ne: req.user.id } })
@@ -290,4 +328,5 @@ module.exports = {
   updateTaskStatus,
   updateTask,
   updateTaskPicture,
+  deleteTask,
 };

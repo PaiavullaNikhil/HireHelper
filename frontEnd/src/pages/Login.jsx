@@ -39,15 +39,14 @@ const Login = () => {
       }
 
       // ✅ SUCCESS LOGIN
-      if (data?.token) {
-        setToken(data.token);
-
+      if (data?.user || data?.id) {
         // ✅ GET USER ID SAFELY
         const userId =
           data?.user?._id ||
           data?.user?.id ||
           data?._id ||
-          data?.id;
+          data?.id ||
+          data?.user?.userId;
 
         if (!userId) {
           console.error("❌ userId missing in response:", data);
@@ -55,22 +54,27 @@ const Login = () => {
           return;
         }
 
-        // ✅ STORE DATA
-        localStorage.setItem("isLoggedIn", "true");
-        localStorage.setItem("auth_token", data.token);
-        localStorage.setItem("userId", userId);
-        localStorage.setItem(
-          "user",
-          JSON.stringify(data.user || data)
-        );
+        console.log("✅ Logged in user:", userId);
 
-        console.log("✅ Stored userId:", userId);
+        if (data?.token) {
+          setToken(data.token);
+        }
+        localStorage.setItem("isLoggedIn", "true");
+        if (data?.user) {
+          localStorage.setItem("user", JSON.stringify(data.user));
+        }
 
         // ✅ CONNECT SOCKET
         getSocket();
 
         toast.success("Login successful");
+        
+        // Use a small delay or window.location.href to ensure cookies are processed?
+        // Actually navigate should be fine as it's the same domain.
+        // We need to notify AppRoutes that login status changed.
+        // For now, let's keep it simple.
         navigate("/dashboard", { replace: true });
+        window.location.reload(); // re-runs /me check with persisted token
       } else {
         toast.error("Invalid login response");
       }
@@ -149,7 +153,7 @@ const Login = () => {
               variant="contained"
               disabled={!canSubmit}
               sx={{
-                width: "60%",
+                width: "100%",
                 padding: "10px",
                 fontSize: "14px",
                 borderRadius: "8px",

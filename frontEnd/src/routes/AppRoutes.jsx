@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 import Landing from "../pages/Landing";
 import Login from "../pages/Login";
@@ -17,27 +17,56 @@ import TaskDetail from "../pages/TaskDetail";
 import Requests from "../pages/Requests";
 import MyRequests from "../pages/MyRequests";
 import Chat from "../pages/Chat";
-
 import AppLayout from "../layouts/AppLayout";
+import { api } from "../lib/api";
 
 const AppRoutes = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // ⭐ Check login ONLY once on load
+  const checkAuth = useCallback(async () => {
+    try {
+      const res = await api.get("/api/auth/me");
+      if (res?.user) {
+        setUser(res.user);
+        setIsLoggedIn(true);
+      } else {
+        setIsLoggedIn(false);
+        setUser(null);
+      }
+    } catch (err) {
+      setIsLoggedIn(false);
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const checkAuth = () => {
-      const logged = localStorage.getItem("isLoggedIn") === "true";
-      setIsLoggedIn(logged);
-    };
-
     checkAuth();
 
-    window.addEventListener("storage", checkAuth);
+    const handleAuthChanged = () => {
+      checkAuth();
+    };
+
+    // sync across tabs and after setToken()
+    window.addEventListener("auth-changed", handleAuthChanged);
+    window.addEventListener("storage", handleAuthChanged);
 
     return () => {
-      window.removeEventListener("storage", checkAuth);
+      window.removeEventListener("auth-changed", handleAuthChanged);
+      window.removeEventListener("storage", handleAuthChanged);
     };
-  }, []);
+  }, [checkAuth]);
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+        Loading...
+      </div>
+    );
+  }
 
   return (
     <Routes>

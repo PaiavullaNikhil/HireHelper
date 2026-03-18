@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Chip, Button, CircularProgress } from "@mui/material";
 import { toast } from "react-toastify";
 import { api } from "../lib/api";
+import { getSocket } from "../lib/socket";
 import { useNavigate } from "react-router-dom";
 
 const statusColors = {
@@ -30,6 +31,19 @@ const Requests = () => {
     }
 
     fetchRequests();
+  }, []);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const handleTaskDeleted = ({ taskId }) => {
+      if (!taskId) return;
+      setRequests((prev) => prev.filter((r) => r.task?._id !== taskId));
+    };
+
+    socket.on("task:deleted", handleTaskDeleted);
+    return () => {
+      socket.off("task:deleted", handleTaskDeleted);
+    };
   }, []);
 
   async function handleUpdate(requestId, status, taskId) {

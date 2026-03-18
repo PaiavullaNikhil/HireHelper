@@ -11,6 +11,31 @@ const { connectDb } = require("./config/db");
 
 
 const Message = require("./models/Message");
+const { Task } = require("./models/Task");
+const { Request } = require("./models/Request");
+const { Notification } = require("./models/Notification");
+const { User } = require("./models/User");
+
+function safeName(user) {
+  if (!user) return "Someone";
+  if (user.first_name && user.last_name) return `${user.first_name} ${user.last_name}`;
+  return user.first_name || "Someone";
+}
+
+function formatMessagePayload(messageDoc) {
+  if (!messageDoc) return null;
+  return {
+    _id: String(messageDoc._id),
+    taskId: messageDoc.taskId,
+    senderId: messageDoc.senderId,
+    text: messageDoc.text,
+    time: messageDoc.time,
+    editedAt: messageDoc.editedAt || null,
+    reactions: Array.isArray(messageDoc.reactions) ? messageDoc.reactions : [],
+    createdAt: messageDoc.createdAt,
+    updatedAt: messageDoc.updatedAt,
+  };
+}
 
 async function main() {
   try {
@@ -33,6 +58,18 @@ async function main() {
     io.on("connection", (socket) => {
       console.log("✅ User connected:", socket.id);
 
+      const initialUserId = socket.handshake?.auth?.userId || socket.handshake?.query?.userId;
+      if (initialUserId) {
+        socket.data.userId = initialUserId;
+        socket.join(`user:${initialUserId}`);
+      }
+
+      socket.on("register_user", (userId) => {
+        if (!userId) return;
+        socket.data.userId = userId;
+        socket.join(`user:${userId}`);
+      });
+
       // JOIN ROOM
       socket.on("join_task_room", (taskId) => {
         const room = `task:${taskId}`;
@@ -42,22 +79,175 @@ async function main() {
 
       // SEND MESSAGE 
       socket.on("send_task_message", async (data) => {
-        const room = `task:${data.taskId}`;
+        const senderId = socket.data.userId || data.senderId;
+        const taskId = data?.taskId;
+        const messageText = String(data?.text || "").trim();
+
+        if (!senderId || !taskId || !messageText) {
+          return;
+        }
+
+        const room = `task:${taskId}`;
         console.log("📩 Message:", data);
+
+        let savedMessage = null;
 
         // SAVE TO MONGODB
         try {
-          await Message.create({
-            taskId: data.taskId,
-            senderId: data.senderId, // ✅ FIXED HERE
-            text: data.text,
+          savedMessage = await Message.create({
+            taskId,
+            senderId,
+            text: messageText,
+            time: data.time || new Date().toLocaleTimeString(),
           });
         } catch (err) {
           console.error("❌ DB Save Error:", err);
         }
 
-        
-        io.to(room).emit("receive_task_message", data);
+        // Notify other participants (task owner / accepted helper) via user rooms.
+        try {
+          const [task, acceptedRequests, sender] = await Promise.all([
+            Task.findById(taskId).lean(),
+            Request.find({ task: taskId, status: "accepted" }).lean(),
+            User.findOne({ id: senderId }).select("first_name last_name").lean(),
+          ]);
+
+          if (task) {
+            const recipientIds = new Set();
+            if (task.createdBy && task.createdBy !== senderId) {
+              recipientIds.add(task.createdBy);
+            }
+
+            for (const req of acceptedRequests || []) {
+              if (req.helper && req.helper !== senderId) {
+                recipientIds.add(req.helper);
+              }
+            }
+
+            const senderName = safeName(sender);
+            const notificationDocs = [];
+
+            for (const userId of recipientIds) {
+              notificationDocs.push({
+                userId,
+                message: `${senderName} sent a message on "${task.title}"`,
+                taskId: task._id,
+                read: false,
+              });
+
+              io.to(`user:${userId}`).emit("chat:new_message", {
+                taskId,
+                senderId,
+                senderName,
+                text: messageText,
+                taskTitle: task.title,
+                createdAt: new Date().toISOString(),
+              });
+            }
+
+            if (notificationDocs.length > 0) {
+              await Notification.insertMany(notificationDocs);
+            }
+          }
+        } catch (err) {
+          console.error("❌ Notification emit/save error:", err);
+        }
+
+        if (savedMessage) {
+          io.to(room).emit("receive_task_message", formatMessagePayload(savedMessage));
+        }
+      });
+
+      // EDIT MESSAGE
+      socket.on("edit_task_message", async (data) => {
+        const senderId = socket.data.userId || data?.senderId;
+        const messageId = data?.messageId;
+        const nextText = String(data?.text || "").trim();
+
+        if (!senderId || !messageId || !nextText) return;
+
+        try {
+          const message = await Message.findById(messageId);
+          if (!message) return;
+          if (message.senderId !== senderId) return;
+
+          message.text = nextText;
+          message.editedAt = new Date();
+          await message.save();
+
+          io.to(`task:${message.taskId}`).emit(
+            "task_message_updated",
+            formatMessagePayload(message)
+          );
+        } catch (err) {
+          console.error("❌ Edit message error:", err);
+        }
+      });
+
+      // DELETE MESSAGE
+      socket.on("delete_task_message", async (data) => {
+        const senderId = socket.data.userId || data?.senderId;
+        const messageId = data?.messageId;
+
+        if (!senderId || !messageId) return;
+
+        try {
+          const message = await Message.findById(messageId).lean();
+          if (!message) return;
+          if (message.senderId !== senderId) return;
+
+          await Message.deleteOne({ _id: messageId });
+
+          io.to(`task:${message.taskId}`).emit("task_message_deleted", {
+            messageId: String(messageId),
+            taskId: message.taskId,
+          });
+        } catch (err) {
+          console.error("❌ Delete message error:", err);
+        }
+      });
+
+      // REACT TO MESSAGE (only one reaction per user per message)
+      socket.on("react_task_message", async (data) => {
+        const userId = socket.data.userId || data?.userId;
+        const messageId = data?.messageId;
+        const emoji = String(data?.emoji || "").trim();
+
+        if (!userId || !messageId || !emoji) return;
+
+        try {
+          const message = await Message.findById(messageId);
+          if (!message) return;
+
+          // Reactions are allowed only on other users' messages.
+          if (message.senderId === userId) return;
+
+          if (!Array.isArray(message.reactions)) {
+            message.reactions = [];
+          }
+
+          const existingIndex = message.reactions.findIndex((r) => r.userId === userId);
+
+          // Same emoji click toggles off, different emoji replaces previous reaction.
+          if (existingIndex >= 0) {
+            if (message.reactions[existingIndex].emoji === emoji) {
+              message.reactions.splice(existingIndex, 1);
+            } else {
+              message.reactions[existingIndex].emoji = emoji;
+            }
+          } else {
+            message.reactions.push({ userId, emoji });
+          }
+
+          await message.save();
+
+          io.to(`task:${message.taskId}`).emit(
+            "task_message_updated",
+            formatMessagePayload(message)
+          );
+        } catch (err) {
+          console.error("❌ React message error:", err);
+        }
       });
 
       socket.on("disconnect", () => {
