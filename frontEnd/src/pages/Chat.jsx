@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { getSocket } from "../lib/socket";
-import axios from "axios";
+import { api } from "../lib/api";
 import { toast } from "react-toastify";
 import CallIcon from "@mui/icons-material/Call";
 import VideocamIcon from "@mui/icons-material/Videocam";
@@ -55,10 +55,8 @@ const Chat = () => {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const res = await axios.get(
-          `http://localhost:5000/api/chat/${taskId}`
-        );
-        setMessages(res.data);
+        const data = await api.get(`/api/chat/${taskId}`);
+        setMessages(data);
       } catch (err) {
         console.error("❌ Failed to load messages", err);
       }

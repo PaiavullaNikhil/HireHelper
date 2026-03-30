@@ -76,9 +76,14 @@ async function main() {
 
     const server = http.createServer(app);
 
+    const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+      .split(",")
+      .map(o => o.trim());
+
     const io = new Server(server, {
       cors: {
-        origin: "*",
+        origin: allowedOrigins,
+        credentials: true,
         methods: ["GET", "POST"],
       },
     });

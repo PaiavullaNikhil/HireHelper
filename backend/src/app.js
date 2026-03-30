@@ -12,14 +12,23 @@ const reviewRouter = require("./routes/review.routes");
 
 function createApp() {
   const app = express();
+  
+  const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map(o => o.trim());
 
-  const corsOrigin = process.env.CORS_ORIGIN || "http://localhost:5173";
-
-  // CORS middleware
   app.use(
     cors({
-      origin: corsOrigin,
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error("Not allowed by CORS"));
+        }
+      },
       credentials: true,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
     })
   );
 
