@@ -100,7 +100,6 @@ const AddTask = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="add-task-sections">
-        {/* Row 1: Details & Photo */}
         <div className="add-task-card">
           <div className="card-section-header">
             <InfoOutlinedIcon /> Task Details
@@ -188,7 +187,6 @@ const AddTask = () => {
 
           </div>
 
-        {/* Row 2: Location & Notes */}
         <div className="add-task-card">
           <div className="card-section-header">
             <EventNoteIcon /> Location & Schedule
@@ -258,7 +256,6 @@ const AddTask = () => {
           </ul>
         </div>
 
-        {/* Row 3: Progress & Submit Button */}
         <div className="add-task-footer-progress">
           <div className="progress-section">
             <div className="progress-label">
